@@ -4,6 +4,7 @@ use sha2::{Digest, Sha256};
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Transaction {
+    pub index: u64,
     pub sender: String,
     pub recipient: String,
     pub amount: u64,
@@ -13,8 +14,15 @@ pub struct Transaction {
 }
 
 impl Transaction {
-    pub fn new(sender: String, recipient: String, amount: u64, memo: Option<String>) -> Self {
+    pub fn new(
+        index: u64,
+        sender: String,
+        recipient: String,
+        amount: u64,
+        memo: Option<String>,
+    ) -> Self {
         Self {
+            index,
             sender,
             recipient,
             amount,
@@ -26,8 +34,8 @@ impl Transaction {
     pub fn hash_without_signature(&self) -> [u8; 32] {
         let mut hasher = Sha256::new();
         hasher.update(format!(
-            "{}{}{}{}",
-            self.sender, self.recipient, self.amount, self.timestamp
+            "{}{}{}{}{}",
+            self.index, self.sender, self.recipient, self.amount, self.timestamp
         ));
 
         let bytes: [u8; 32] = hasher.finalize().into();

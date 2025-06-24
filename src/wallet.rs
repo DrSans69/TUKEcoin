@@ -11,6 +11,7 @@ pub struct Wallet {
     pub private_key: SecretKey,
     pub public_key: PublicKey,
     pub address: String,
+    pub tx_height: u64,
 }
 
 impl Wallet {
@@ -20,10 +21,12 @@ impl Wallet {
         let (private_key, public_key) = secp.generate_keypair(&mut rand::rng());
 
         let address = Self::public_key_to_address(&public_key);
+
         Wallet {
             private_key,
             public_key,
             address,
+            tx_height: 0,
         }
     }
 
@@ -35,17 +38,39 @@ impl Wallet {
         sha256_hash.to_base58()
     }
 
-    pub fn sign(&self, transaction: &mut Transaction) {
-        let hash: [u8; 32] = transaction.hash_without_signature();
-        let msg: Message = Message::from_digest(hash);
-        let signature: String = self.private_key.sign_ecdsa(msg).to_string();
+    pub fn create_transaction(
+        &mut self,
+        recipient: String,
+        amount: u64,
+        memo: Option<String>,
+    ) -> Transaction {
+        let mut tx = Transaction::new(
+            self.tx_height,
+            self.address.clone(),
+            recipient,
+            amount,
+            memo,
+        );
+        self.sign(&mut tx);
+        self.tx_height += 1;
+        tx
+    }
 
-        transaction.signature = Some(signature);
+    pub fn sign(&self, transaction: &mut Transaction) {
+        sign(self.private_key, transaction);
     }
 
     pub fn verify(&self, transaction: &Transaction) -> bool {
         return verify(&self.public_key, transaction);
     }
+}
+
+pub fn sign(private_key: SecretKey, transaction: &mut Transaction) {
+    let hash: [u8; 32] = transaction.hash_without_signature();
+    let msg: Message = Message::from_digest(hash);
+    let signature: String = private_key.sign_ecdsa(msg).to_string();
+
+    transaction.signature = Some(signature);
 }
 
 pub fn verify(public_key: &PublicKey, transaction: &Transaction) -> bool {

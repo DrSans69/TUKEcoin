@@ -13,28 +13,14 @@ const DIFFICULTY: usize = 1;
 fn main() {
     let mut chain = Blockchain::new(DIFFICULTY);
 
-    let wallet1: Wallet = Wallet::new();
-    let wallet2: Wallet = Wallet::new();
+    let mut wallet1: Wallet = Wallet::new();
+    let mut wallet2: Wallet = Wallet::new();
 
     let mut txs: Vec<Transaction> = vec![];
 
-    let mut trans1: Transaction = Transaction::new(
-        wallet1.address.clone(),
-        wallet2.address.clone(),
-        1231,
-        Some("mm".into()),
-    );
-    wallet1.sign(&mut trans1);
-    txs.push(trans1);
-
-    let mut trans2: Transaction = Transaction::new(
-        wallet2.address.clone(),
-        wallet1.address.clone(),
-        321,
-        Some("Some memo".into()),
-    );
-    wallet2.sign(&mut trans2);
-    txs.push(trans2);
+    txs.push(wallet1.create_transaction(wallet2.address.clone(), 123, None));
+    txs.push(wallet1.create_transaction(wallet2.address.clone(), 123, None));
+    txs.push(wallet2.create_transaction(wallet1.address.clone(), 1222, None));
 
     chain.add_block(serde_json::to_string_pretty(&txs).unwrap());
 
