@@ -24,9 +24,6 @@ fn main() {
 
     chain.add_block(serde_json::to_string_pretty(&txs).unwrap());
 
-    println!("{}", wallet1.verify(&txs[0]));
-    println!("{}", wallet2.verify(&txs[1]));
-
     check(chain);
 }
 
@@ -34,6 +31,12 @@ fn check(chain: Blockchain) {
     for block in &chain.chain {
         println!("{:#?}", block);
         println!("{}", block.data);
+
+        let txs: Vec<Transaction> = serde_json::from_str(&block.data).unwrap_or(vec![]);
+        for tx in txs {
+            println!("{:?}", tx);
+            println!("{}", tx.verify());
+        }
     }
 
     println!("Chain valid - {}\n", chain.is_valid());
