@@ -1,43 +1,84 @@
-mod blockchain;
-mod transaction;
-mod wallet;
+use std::time::Duration;
 
-use blockchain::Blockchain;
-use transaction::Transaction;
-use wallet::Wallet;
+use libp2p::{
+    self,
+    core::upgrade,
+    floodsub::{Floodsub, FloodsubEvent, Topic},
+    futures::StreamExt,
+    identity, plaintext,
+    swarm::{Config, SwarmEvent},
+    tcp, yamux, Multiaddr, PeerId, Swarm, Transport,
+};
+use tokio::{
+    self,
+    io::{AsyncBufReadExt, BufReader},
+};
 
-use serde_json;
+const MAX_IDLE: u64 = 60;
 
-const DIFFICULTY: usize = 1;
+#[tokio::main]
+async fn main() {
+    let id_keys = identity::Keypair::generate_ed25519();
+    let peer_id = PeerId::from(id_keys.public());
+    println!("Local peer id: {:?}", peer_id);
 
-fn main() {
-    let mut chain = Blockchain::new(DIFFICULTY);
+    let transport = tcp::tokio::Transport::default()
+        .upgrade(upgrade::Version::V1)
+        .authenticate(plaintext::Config::new(&id_keys))
+        .multiplex(yamux::Config::default())
+        .boxed();
 
-    let mut wallet1: Wallet = Wallet::new();
-    let mut wallet2: Wallet = Wallet::new();
+    let behaviour = Floodsub::new(peer_id);
 
-    let mut txs: Vec<Transaction> = vec![];
+    let config: Config =
+        Config::with_tokio_executor().with_idle_connection_timeout(Duration::from_secs(MAX_IDLE));
 
-    txs.push(wallet1.create_transaction(wallet2.address.clone(), 123, None));
-    txs.push(wallet1.create_transaction(wallet2.address.clone(), 123, None));
-    txs.push(wallet2.create_transaction(wallet1.address.clone(), 1222, None));
+    let mut swarm = Swarm::new(transport, behaviour, peer_id, config);
 
-    chain.add_block(serde_json::to_string_pretty(&txs).unwrap());
+    //
 
-    check(chain);
-}
+    let listen_addr: Multiaddr = "/ip4/0.0.0.0/tcp/0".parse().unwrap();
 
-fn check(chain: Blockchain) {
-    for block in &chain.chain {
-        println!("{:#?}", block);
-        println!("{}", block.data);
+    swarm.listen_on(listen_addr).unwrap();
 
-        let txs: Vec<Transaction> = serde_json::from_str(&block.data).unwrap_or(vec![]);
-        for tx in txs {
-            println!("{:?}", tx);
-            println!("{}", tx.verify());
+    let topic = Topic::new("chat");
+
+    swarm.behaviour_mut().subscribe(topic.clone());
+
+    let remote_addr: Multiaddr = "/ip4/192.168.137.6/tcp/57023".parse().unwrap();
+
+    swarm.dial(remote_addr.clone()).unwrap();
+    println!("Dialed {}", remote_addr);
+
+    let mut stdin = BufReader::new(tokio::io::stdin()).lines();
+    loop {
+        tokio::select! {
+            line = stdin.next_line() => {
+                if let Ok(Some(line)) = line {
+                    swarm.behaviour_mut().publish(topic.clone(), line.into_bytes());
+                } else {
+                    break;
+                }
+            }
+            event = swarm.next() => {
+                match event {
+                    Some(SwarmEvent::Behaviour(FloodsubEvent::Message(m))) => {
+                        println!(
+                            "📨 Received: '{}' from {:?}",
+                            String::from_utf8_lossy(&m.data),
+                            m.source
+                        );
+                    }
+                    Some(SwarmEvent::ConnectionEstablished { peer_id, .. }) => {
+                        println!("✅ Connected to {:?}", peer_id);
+                        swarm.behaviour_mut().add_node_to_partial_view(peer_id.clone());
+                    }
+                    Some(other) => {
+                        println!("🌀 Other: {:?}", other);
+                    }
+                    None => break,
+                }
+            }
         }
     }
-
-    println!("Chain valid - {}\n", chain.is_valid());
 }
