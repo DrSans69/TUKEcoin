@@ -92,6 +92,7 @@ impl NetworkBehaviourEventProcess<FloodsubEvent> for AppBehaviour{
                 if resp.reciever == PEER_ID.to_string() {
                     info!("Response from {}:", msg.source);
                     resp.blocks.iter().for_each(|r| info!("{:?}", r));
+                    self.app.blocks = resp.blocks.clone();
                 }
             }
             else if let Ok(resp) = serde_json::from_slice::<LocalChainRequest>(&msg.data){

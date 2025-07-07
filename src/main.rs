@@ -57,7 +57,7 @@ async fn main(){
         sleep(Duration::from_secs(1)).await;
         info!("sending init event!");
         init_sender.unbounded_send(p2p::EventType::Init).expect("can send init event");
-    });
+    }); 
 
     loop {
         let evt = {
@@ -73,8 +73,8 @@ async fn main(){
                     Some(p2p::EventType::Init)
                 }
                 // Case 4: A swarm/networking event happened (but we're not handling it)
-                event = swarm.select_next_some() => {
-                    info!("Unhandled Swarm Event: {:?}", event);
+                _event = swarm.select_next_some() => {
+                    // info!("Unhandled Swarm Event: {:?}", event);
                     None
                 },
             }
@@ -94,7 +94,7 @@ async fn main(){
                             .expect("at least one pear")
                             .to_string(),
                         };
-                        
+                        info!("getting copy of a blockain from peer {}", peers.iter().last().expect("at least one pear"));
                         let json = serde_json::to_string(&req).expect("can jsonify request");
                         swarm
                             .behaviour_mut()
