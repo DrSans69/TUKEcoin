@@ -1,111 +1,120 @@
-mod client;
 mod idle;
-mod server;
+mod menu_state;
+mod network;
+mod transacions;
 
 use crate::app::{
     components::{Menu, MenuItem},
-    Action, Context, State,
+    Action, Context,
 };
-use client::StateClient;
-use idle::StateIdle;
-use server::StateServer;
+use idle::IdleState;
+use menu_state::MenuState;
+use network::NetworkState;
+use transacions::TransactionsState;
 
-use crossterm::event::{Event, KeyCode, KeyEventKind};
-use ratatui::{
-    layout::{Constraint::Fill, Layout},
-    style::Stylize,
-    text::Line,
-    widgets::Block,
-    Frame,
-};
+use crossterm::event::Event;
+use ratatui::Frame;
+
+#[derive(Clone, Copy, Debug)]
+pub enum State {
+    Idle,
+    Network(u16),
+    Transactions,
+    Mining,
+}
+
+impl PartialEq for State {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (State::Idle, State::Idle) => true,
+            (State::Network(_), State::Network(_)) => true,
+            (State::Transactions, State::Transactions) => true,
+            (State::Mining, State::Mining) => true,
+            _ => false,
+        }
+    }
+}
 
 // Traits
 pub trait AppState {
-    fn on_enter(&mut self);
-    fn on_exit(&mut self);
+    fn get_parent(&self) -> Option<State>;
+
+    fn on_enter(&mut self, ctx: &mut Context);
+    fn on_exit(&mut self, ctx: &mut Context);
     fn draw(&mut self, frame: &mut Frame, ctx: &mut Context);
-    fn handle_events(&mut self, event: &Event) -> Option<Action>;
-}
-
-trait MenuState: AppState {
-    fn get_title(&self) -> &str;
-    fn get_menu(&mut self) -> &mut Menu;
-
-    fn get_hints(&self) -> Line<'static> {
-        Line::from(vec![
-            " Navigation ".into(),
-            "<↑↓>".gray(),
-            " Select ".into(),
-            "<Enter>".gray(),
-            " Quit ".into(),
-            "<q>".gray(),
-            " ".into(),
-        ])
-        .centered()
-    }
-
-    fn draw_menu(&mut self, frame: &mut Frame, ctx: &mut Context) {
-        let title = self.get_title().to_string();
-        let hints = self.get_hints();
-        let menu = self.get_menu();
-
-        let main_block = Block::bordered().title(title.bold()).title_bottom(hints);
-        let inner_area = main_block.inner(frame.area());
-        frame.render_widget(main_block, frame.area());
-
-        let horizontal_layout = Layout::horizontal([Fill(1), Fill(1)]);
-        let [left_area, right_area] = horizontal_layout.areas(inner_area);
-
-        menu.draw(frame, left_area);
-
-        ctx.output.draw(frame, right_area);
-    }
-
-    fn handle_quit_and_menu(&mut self, event: &Event) -> Option<Action> {
-        if let Event::Key(key) = event {
-            if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                return Some(Action::Quit);
-            }
-        }
-
-        self.get_menu().handle_events(event)
-    }
-
-    fn select_first(&mut self) {
-        let menu = self.get_menu();
-        menu.state.select(Some(0));
-    }
+    fn handle_events(&mut self, event: &Event, ctx: &mut Context);
 }
 
 // Manager
 pub struct StateManager {
     state: State,
-    idle_state: StateIdle,
-    client_state: StateClient,
-    server_state: StateServer,
+    idle: IdleState,
+    network: NetworkState,
+    transactions: TransactionsState,
 }
 
 impl StateManager {
     pub fn new() -> Self {
         Self {
             state: State::Idle,
-            idle_state: StateIdle::new(),
-            client_state: StateClient::new(),
-            server_state: StateServer::new(),
+            idle: IdleState::new(),
+            network: NetworkState::new(),
+            transactions: TransactionsState::new(),
+        }
+    }
+
+    fn get_state(&mut self, state: State) -> &mut dyn AppState {
+        match state {
+            State::Idle => &mut self.idle,
+            State::Network(_) => &mut self.network,
+            State::Transactions => &mut self.transactions,
+            _ => &mut self.idle,
         }
     }
 
     pub fn current_state(&mut self) -> &mut dyn AppState {
-        match self.state {
-            State::Idle => &mut self.idle_state,
-            State::Client => &mut self.client_state,
-            State::Server => &mut self.server_state,
-        }
+        self.get_state(self.state)
     }
 
-    pub fn transition(&mut self, new_state: State) {
-        self.current_state().on_exit();
+    fn build_path_to_root(&mut self, mut state: State) -> Vec<State> {
+        let mut path = vec![state.clone()];
+        while let Some(parent) = self.get_state(state).get_parent() {
+            path.push(parent.clone());
+            state = parent;
+        }
+        path
+    }
+
+    pub fn transition(&mut self, new_state: State, ctx: &mut Context) {
+        match new_state {
+            State::Network(port) => {
+                ctx.netwrok_port = port;
+            }
+            _ => {}
+        }
+
+        let mut current_path = self.build_path_to_root(self.state);
+        let mut target_path = self.build_path_to_root(new_state);
+
+        current_path.reverse();
+        target_path.reverse();
+
+        let mut lca_index = 0;
+        while lca_index < current_path.len()
+            && lca_index < target_path.len()
+            && current_path[lca_index] == target_path[lca_index]
+        {
+            lca_index += 1;
+        }
+
+        for state in current_path.iter().skip(lca_index).rev() {
+            self.get_state(*state).on_exit(ctx);
+        }
+
+        for state in target_path.iter().skip(lca_index) {
+            self.get_state(*state).on_enter(ctx);
+        }
+
         self.state = new_state;
-        self.current_state().on_enter();
     }
 }
